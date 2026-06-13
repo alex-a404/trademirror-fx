@@ -6,6 +6,7 @@ import InsightCard, {
 } from './InsightCard'
 import PatienceRatioVisual, { SessionWinRate } from './PatienceRatioVisual'
 import TradeSequenceStrip from './TradeSequenceStrip'
+import WhatIfSimulator from './WhatIfSimulator'
 
 function avg(arr) {
   return arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0
@@ -179,6 +180,8 @@ export default function ClientDashboard({
         </div>
 
         <TradeSequenceStrip trades={trades} autopsyCards={autopsy_cards} />
+
+        <WhatIfSimulator trades={trades} />
 
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
