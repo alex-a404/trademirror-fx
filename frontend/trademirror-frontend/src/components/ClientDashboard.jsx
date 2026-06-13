@@ -7,6 +7,7 @@ import InsightCard, {
 import PatienceRatioVisual, { SessionWinRate } from './PatienceRatioVisual'
 import TradeSequenceStrip from './TradeSequenceStrip'
 import WhatIfSimulator from './WhatIfSimulator'
+import AiDeepDive from './AiDeepDive'
 
 function avg(arr) {
   return arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0
@@ -169,6 +170,8 @@ export default function ClientDashboard({
             <p className="text-sm leading-relaxed">{narrative}</p>
           </div>
         ) : null}
+
+        <AiDeepDive clientId={client_id} />
 
         <div className="mb-5 grid grid-cols-2 gap-4">
           <PatienceRatioVisual

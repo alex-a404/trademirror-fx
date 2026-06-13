@@ -4,6 +4,7 @@ TradeMirror — Amazon Bedrock integration.
 Three generation functions, all cache-backed:
   generate_autopsy_card(trade)                       → str
   generate_narrative(client_id, metrics, trades)     → str
+  generate_insight(client_id, type, metrics, trades) → str
   generate_campaign(group, courses)                  → dict
 
 Cache lives at data/bedrock_cache.json.
@@ -16,17 +17,34 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Optional, Union
 
 log = logging.getLogger(__name__)
 
-# ── Model config ───────────────────────────────────────────────────────────────
-# Claude 3.5 Sonnet on Bedrock — verify the model ID is enabled in your region
-# at: AWS Console → Bedrock → Model access
 
-MODEL_ID    = "anthropic.claude-3-5-sonnet-20241022-v2:0"
-API_VERSION = "bedrock-2023-05-31"
-AWS_REGION  = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+def _load_env() -> None:
+    """Load backend/.env if present (optional dependency: python-dotenv)."""
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(Path(__file__).resolve().parent / ".env")
+    except ImportError:
+        pass
+
+
+_load_env()
+
+# ── Model config ───────────────────────────────────────────────────────────────
+# DeepSeek V3.2 via bedrock-mantle (OpenAI-compatible Chat Completions).
+# Copy backend/.env.example → backend/.env and set OPENAI_API_KEY there.
+
+MODEL_ID   = os.getenv("BEDROCK_MODEL_ID", "deepseek.v3.2")
+AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "eu-north-1")
+MANTLE_BASE_URL = os.getenv(
+    "OPENAI_BASE_URL",
+    f"https://bedrock-mantle.{AWS_REGION}.api.aws/v1",
+)
 
 # ── Course catalog ─────────────────────────────────────────────────────────────
 # Single source of truth shared by main.py and pregenerate.py.
@@ -79,39 +97,46 @@ def _set(key: str, value: Union[str, dict]) -> None:
     _cache[key] = value
 
 
-# ── Bedrock client ─────────────────────────────────────────────────────────────
+# ── Bedrock client (bedrock-mantle + OpenAI SDK) ───────────────────────────────
 
 def _invoke(prompt: str, system: str = "", max_tokens: int = 300) -> str:
     """
-    Single synchronous Bedrock call. Returns empty string on any error.
-    Credentials come from the environment — no explicit keys needed on AWS
-    instances with an IAM role attached.
+    Chat Completions via bedrock-mantle (matches AWS console playground).
+    Requires OPENAI_API_KEY in backend/.env (Bedrock API key).
+    Returns empty string on any error.
     """
-    try:
-        import boto3
-        client = boto3.client("bedrock-runtime", region_name=AWS_REGION)
-
-        body: dict = {
-            "anthropic_version": API_VERSION,
-            "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        if system:
-            body["system"] = system
-
-        response = client.invoke_model(
-            modelId=MODEL_ID,
-            body=json.dumps(body),
-            contentType="application/json",
-            accept="application/json",
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        log.error(
+            "[bedrock] OPENAI_API_KEY not set — add your Bedrock API key to backend/.env"
         )
-        result = json.loads(response["body"].read())
-        return result["content"][0]["text"].strip()
+        return ""
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(base_url=MANTLE_BASE_URL, api_key=api_key)
+
+        messages: list[dict] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+
+        response = client.chat.completions.create(
+            model=MODEL_ID,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=0.4,
+        )
+        return (response.choices[0].message.content or "").strip()
 
     except ImportError:
-        log.error("[bedrock] boto3 not installed — run: pip install boto3")
+        log.error("[bedrock] openai not installed — run: pip install openai")
     except Exception as e:
-        log.error(f"[bedrock] invoke_model failed: {type(e).__name__}: {e}")
+        log.error(
+            f"[bedrock] mantle chat failed ({MODEL_ID} @ {MANTLE_BASE_URL}): "
+            f"{type(e).__name__}: {e}"
+        )
     return ""
 
 
@@ -182,6 +207,69 @@ def generate_narrative(client_id: str, metrics, trades: list) -> str:
     )
 
     text = _invoke(prompt, max_tokens=200)
+    if text:
+        _set(key, text)
+    return text
+
+
+INSIGHT_TYPES = frozenset({"critical_mistakes", "action_plan", "hidden_edge"})
+
+_INSIGHT_PROMPTS: dict[str, str] = {
+    "critical_mistakes": (
+        "Identify the 2–3 most costly behavioural mistakes visible in this trader's data. "
+        "Be specific, cite the metrics, and explain the pattern — not generic trading advice. "
+        "Do not give financial advice. Write only the analysis — no preamble, no heading."
+    ),
+    "action_plan": (
+        "Write a practical 3-step action plan this trader could follow over the next 2 weeks "
+        "to address their most significant behavioural pattern. Each step should be concrete "
+        "and tied to their data. Do not give financial advice. Write only the plan — no preamble, no heading."
+    ),
+    "hidden_edge": (
+        "Find one non-obvious strength or hidden edge in this trader's data that they may be "
+        "under-utilising. Be specific and encouraging without being vague. "
+        "Do not give financial advice. Write only the insight — no preamble, no heading."
+    ),
+}
+
+
+def _metrics_context(metrics, trades: list) -> str:
+    flagged_count = sum(1 for t in trades if t.flags)
+    patience_str = (
+        f"{metrics.patience_ratio:.2f}"
+        if metrics.patience_ratio is not None
+        else "insufficient data"
+    )
+    return (
+        f"Post-loss trade rate: {metrics.emotional_chain_rate:.1%}\n"
+        f"Sizing consistency (CV): {metrics.sizing_cv:.2f}\n"
+        f"Patience ratio (winner hold ÷ loser hold): {patience_str}\n"
+        f"Session win-rate variance: {metrics.session_variance:.2f}\n"
+        f"Trade frequency: {metrics.trade_frequency:.1f} per active day\n"
+        f"Flagged trades: {flagged_count} of {metrics.total_trades}"
+    )
+
+
+def generate_insight(client_id: str, insight_type: str, metrics, trades: list) -> str:
+    """
+    On-demand deep-dive insight for the client dashboard.
+
+    Cache key: insight:{client_id}:{insight_type}
+    """
+    if insight_type not in INSIGHT_TYPES:
+        log.warning(f"[bedrock] Unknown insight type: {insight_type!r}")
+        return ""
+
+    key = f"insight:{client_id}:{insight_type}"
+    if (cached := _get(key)) is not None:
+        return cached  # type: ignore[return-value]
+
+    prompt = (
+        f"{_INSIGHT_PROMPTS[insight_type]}\n\n"
+        f"{_metrics_context(metrics, trades)}"
+    )
+
+    text = _invoke(prompt, max_tokens=400)
     if text:
         _set(key, text)
     return text

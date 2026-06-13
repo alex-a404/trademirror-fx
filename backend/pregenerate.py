@@ -9,16 +9,15 @@ During the demo, main.py loads that cache at startup so all responses
 are instant — no live Bedrock calls needed.
 
 Usage:
+    cp .env.example .env   # then edit .env
+    pip install -r requirements.txt
     python pregenerate.py
 
-AWS credentials (pick one):
-    1. IAM role attached to the EC2/Cloud9 instance  → nothing to configure
-    2. AWS CLI profile                                → aws configure
-    3. Environment variables:
-         AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
-
-Make sure the IAM policy includes:
-    bedrock:InvokeModel on arn:aws:bedrock:*::foundation-model/anthropic.*
+Credentials live in backend/.env (see .env.example):
+    OPENAI_API_KEY       — Bedrock API key (Console → Bedrock → API keys)
+    AWS_DEFAULT_REGION   — e.g. eu-north-1
+    OPENAI_BASE_URL      — optional; defaults from region
+    BEDROCK_MODEL_ID     — optional; default deepseek.v3.2
 """
 
 import glob

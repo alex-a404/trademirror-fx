@@ -8,6 +8,7 @@ from typing import List
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from computation import compute_metrics
 from models import ClientAnalysis
@@ -21,8 +22,10 @@ from routing import (
 from session_store import create_session, get_session, session_exists
 from bedrock import (
     COURSE_META,
+    INSIGHT_TYPES,
     generate_autopsy_card,
     generate_campaign,
+    generate_insight,
     generate_narrative,
     load_cache,
 )
@@ -259,6 +262,49 @@ async def demo_clients():
     """List available client IDs in the demo session."""
     data = _get_session_or_404("demo")
     return {"client_ids": list(data["analyses"].keys())}
+
+
+# ──────────────────────────────────────────────
+# AI Deep Dive — on-demand Bedrock insights
+# ──────────────────────────────────────────────
+
+class GenerateInsightRequest(BaseModel):
+    client_id: str
+    insight_type: str
+
+
+@app.post("/api/generate-insight")
+async def api_generate_insight(req: GenerateInsightRequest):
+    """Generate a live Bedrock insight for the client dashboard deep-dive tabs."""
+    if req.insight_type not in INSIGHT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown insight_type '{req.insight_type}'. "
+                   f"Expected one of: {', '.join(sorted(INSIGHT_TYPES))}",
+        )
+
+    data = _get_session_or_404("demo")
+    if req.client_id not in data["analyses"]:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Client '{req.client_id}' not found in demo session",
+        )
+
+    analysis = data["analyses"][req.client_id]
+    text = generate_insight(
+        req.client_id,
+        req.insight_type,
+        analysis.metrics,
+        analysis.trades,
+    )
+
+    if not text:
+        text = (
+            "Bedrock is unavailable right now. "
+            "Check that OPENAI_API_KEY is set in backend/.env and try again."
+        )
+
+    return {"text": text, "insight_type": req.insight_type}
 
 
 # ──────────────────────────────────────────────
