@@ -1,0 +1,530 @@
+To use it — drop it in the Vite project, wire it into App.jsx:
+import ClientView from './ClientView'
+
+// With live API data:
+export default function App() {
+  return <ClientView brokerName="Vertex FX" />
+}
+
+// Or pass pre-fetched analysis:
+export default function App() {
+  const [data, setData] = useState(null)
+  useEffect(() => fetch('http://localhost:8000/analyze', { method:'POST', body: formData }).then(r=>r.json()).then(setData), [])
+  return data ? <ClientView analysis={data} brokerName="Vertex FX" /> : null
+}
+Before Bedrock is done — the component works fine without it. autopsy_cards will be empty so it falls back to AUTOPSY_FALLBACK hardcoded text for each flag type. The narrative section simply doesn't render if the string is empty.
+The brokerName prop is the only thing that needs changing per broker deployment. Everything else adapts to the real data from the API.
+
+
+----
+
+ClientView.jsx
+
+----
+
+import { useState, useEffect, Fragment } from 'react'
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const API_BASE = 'http://localhost:8000'
+
+const METRIC_CONFIG = {
+  emotional_chain_rate: {
+    label: 'Post-loss trading',
+    format: v => `${(v * 100).toFixed(0)}%`,
+    status: v => v > 0.35 ? 'critical' : v > 0.10 ? 'watch' : 'good',
+  },
+  sizing_cv: {
+    label: 'Sizing consistency',
+    format: v => v.toFixed(2),
+    status: v => v > 0.50 ? 'critical' : v > 0.25 ? 'watch' : 'good',
+  },
+  patience_ratio: {
+    label: 'Patience ratio',
+    format: v => v != null ? v.toFixed(2) : '—',
+    status: v => v == null ? 'watch' : v < 0.5 ? 'critical' : v < 0.8 ? 'watch' : 'good',
+  },
+  session_variance: {
+    label: 'Session variance',
+    format: v => v.toFixed(2),
+    status: v => v > 0.35 ? 'critical' : v > 0.20 ? 'watch' : 'good',
+  },
+  trade_frequency: {
+    label: 'Trade frequency',
+    format: v => `${v.toFixed(1)}/day`,
+    status: v => v > 15 ? 'watch' : 'good',
+  },
+}
+
+const STATUS_STYLES = {
+  critical: {
+    badge:  'bg-red-50 text-red-700',
+    value:  'text-red-600',
+    ring:   'ring-1 ring-red-200',
+    label:  'Critical',
+  },
+  watch: {
+    badge:  'bg-amber-50 text-amber-700',
+    value:  '',
+    ring:   '',
+    label:  'Watch',
+  },
+  good: {
+    badge:  'bg-emerald-50 text-emerald-700',
+    value:  '',
+    ring:   '',
+    label:  'Normal',
+  },
+}
+
+const FLAG_CONFIG = {
+  post_loss:  { label: 'Post-loss',  cls: 'bg-amber-50 text-amber-700' },
+  oversized:  { label: 'Oversized',  cls: 'bg-red-50 text-red-700' },
+  early_exit: { label: 'Early exit', cls: 'bg-blue-50 text-blue-700' },
+}
+
+// Fallback autopsy text used when Bedrock is not yet wired up
+const AUTOPSY_FALLBACK = {
+  post_loss:  'This trade was opened shortly after a closing loss. Entering the market quickly after a loss is associated with reactive rather than planned decision-making.',
+  oversized:  'This trade used significantly more volume than usual and closed at a loss. Oversized entries on losing trades are the most damaging pattern in this data.',
+  early_exit: 'This winning trade was closed well before reaching its potential. The position was moving correctly but was exited early.',
+}
+
+const SESSION_ORDER = ['London', 'New York', 'Asia', 'Late']
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function avg(arr) {
+  return arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0
+}
+
+function formatDuration(minutes) {
+  if (!minutes) return '—'
+  if (minutes < 60) return `${Math.round(minutes)} min`
+  const h = Math.floor(minutes / 60)
+  const m = Math.round(minutes % 60)
+  return m > 0 ? `${h}h ${m}m` : `${h}h`
+}
+
+function formatDate(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleString('en-GB', {
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+}
+
+// ─── Small reusable bits ──────────────────────────────────────────────────────
+
+function StatusBadge({ status }) {
+  const s = STATUS_STYLES[status]
+  return (
+    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${s.badge}`}>
+      {s.label}
+    </span>
+  )
+}
+
+function FlagBadge({ flag }) {
+  const cfg = FLAG_CONFIG[flag]
+  if (!cfg) return null
+  return (
+    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  )
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+/**
+ * ClientView — white-label behavioral analysis dashboard.
+ *
+ * Props
+ *   analysis     Object   Pre-fetched API response. If omitted, fetches from
+ *                         GET /demo/client/client_B automatically.
+ *   brokerName   string   Broker brand name shown in the nav. Default: 'Demo Broker'
+ *   clientLabel  string   Display label for the client. Default: analysis.client_id
+ */
+export default function ClientView({
+  analysis: propAnalysis = null,
+  brokerName = 'Demo Broker',
+  clientLabel = null,
+}) {
+  const [analysis, setAnalysis]       = useState(propAnalysis)
+  const [loading, setLoading]         = useState(!propAnalysis)
+  const [error, setError]             = useState(null)
+  const [selectedTrade, setSelected]  = useState(null)
+  const [expandedRows, setExpanded]   = useState(new Set())
+
+  useEffect(() => {
+    if (propAnalysis) return
+    fetch(`${API_BASE}/demo/client/client_B`)
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.json() })
+      .then(data => { setAnalysis(data); setLoading(false) })
+      .catch(e  => { setError(e.message); setLoading(false) })
+  }, [])
+
+  if (loading) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <p className="text-sm text-gray-400">Loading analysis…</p>
+    </div>
+  )
+
+  if (error || !analysis) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <p className="text-sm text-red-500">
+        Could not load analysis{error ? ` (${error})` : ''}. Is the backend running?
+      </p>
+    </div>
+  )
+
+  const { metrics, trades, narrative, autopsy_cards, client_id } = analysis
+  const displayLabel = clientLabel || client_id
+
+  // ── Patience ratio bar widths ──────────────────────────────────────────────
+  const winnerHolds = trades.filter(t => t.is_winner === true).map(t => t.hold_duration_minutes)
+  const loserHolds  = trades.filter(t => t.is_winner === false).map(t => t.hold_duration_minutes)
+  const avgWinner   = avg(winnerHolds)
+  const avgLoser    = avg(loserHolds)
+  const maxHold     = Math.max(avgWinner, avgLoser, 1)
+  const winnerPct   = Math.max((avgWinner / maxHold) * 100, 2)
+  const loserPct    = Math.max((avgLoser  / maxHold) * 100, 2)
+
+  // ── Session chart ──────────────────────────────────────────────────────────
+  const sessionStats = metrics.session_stats || {}
+  const sessions = SESSION_ORDER.map(key => ({
+    key,
+    data: sessionStats[key] ?? null,
+  }))
+  const BAR_HEIGHT = 60 // px — total height of chart area
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function toggleRow(id) {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function selectTrade(trade) {
+    setSelected(prev => prev?.position_id === trade.position_id ? null : trade)
+  }
+
+  function autopsyFor(trade) {
+    return autopsy_cards?.[trade.position_id]
+      || (trade.flags[0] ? AUTOPSY_FALLBACK[trade.flags[0]] : null)
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+
+      {/* ── Broker nav ────────────────────────────────────────────────── */}
+      <nav className="bg-white border-b border-gray-200 px-5 py-2.5 flex items-center justify-between sticky top-0 z-20">
+        <div className="flex items-center gap-6">
+          {/* Logo */}
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-[5px] bg-blue-50 flex items-center justify-center
+                            text-[9px] font-semibold text-blue-700 select-none">
+              VX
+            </div>
+            <span className="text-sm font-medium">{brokerName}</span>
+          </div>
+          {/* Nav items */}
+          <div className="flex items-center gap-5">
+            {['Overview', 'My trades', 'Performance', 'Academy', 'Support'].map(item => (
+              <span
+                key={item}
+                className={`text-xs cursor-pointer pb-0.5 transition-colors select-none ${
+                  item === 'Performance'
+                    ? 'font-medium text-gray-900 border-b-[1.5px] border-gray-900'
+                    : 'text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        </div>
+        {/* Avatar */}
+        <div className="w-7 h-7 rounded-full bg-gray-100 border border-gray-200
+                        flex items-center justify-center text-[10px] font-medium text-gray-500">
+          JD
+        </div>
+      </nav>
+
+      <div className="max-w-5xl mx-auto px-5 py-6">
+
+        {/* ── Section header ─────────────────────────────────────────── */}
+        <div className="flex items-end justify-between mb-5">
+          <div>
+            <h1 className="text-lg font-medium">My performance</h1>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {trades.length} trades · {displayLabel}
+            </p>
+          </div>
+          <span className="text-[10px] text-gray-400">
+            Powered by TradeMirror
+          </span>
+        </div>
+
+        {/* ── Metric cards ───────────────────────────────────────────── */}
+        <div className="grid grid-cols-5 gap-2 mb-5">
+          {Object.entries(METRIC_CONFIG).map(([key, cfg]) => {
+            const val    = metrics[key]
+            const status = cfg.status(val)
+            const styles = STATUS_STYLES[status]
+            return (
+              <div key={key} className={`bg-gray-50 rounded-xl p-3 ${styles.ring}`}>
+                <div className="text-[11px] text-gray-500 mb-1 leading-snug">{cfg.label}</div>
+                <div className={`text-xl font-medium mb-2 ${styles.value}`}>
+                  {cfg.format(val)}
+                </div>
+                <StatusBadge status={status} />
+              </div>
+            )
+          })}
+        </div>
+
+        {/* ── Insight narrative ──────────────────────────────────────── */}
+        {narrative ? (
+          <div className="flex gap-2.5 items-start bg-gray-50 rounded-xl px-4 py-3 mb-5
+                          border-l-2 border-red-300">
+            <span className="text-gray-400 mt-0.5 shrink-0 text-xs">✦</span>
+            <p className="text-sm leading-relaxed">{narrative}</p>
+          </div>
+        ) : null}
+
+        {/* ── Analytics row ──────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 gap-4 mb-5">
+
+          {/* Hold time */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="text-sm font-medium mb-4">Hold time comparison</div>
+            <div className="mb-3">
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="text-gray-500">Avg winner held</span>
+                <span className="font-medium text-emerald-600">{formatDuration(avgWinner)}</span>
+              </div>
+              <div className="bg-gray-100 rounded h-2 overflow-hidden">
+                <div className="h-full bg-emerald-500 rounded" style={{ width: `${winnerPct}%` }} />
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="text-gray-500">Avg loser held</span>
+                <span className="font-medium text-red-600">{formatDuration(avgLoser)}</span>
+              </div>
+              <div className="bg-gray-100 rounded h-2 overflow-hidden">
+                <div className="h-full bg-red-500 rounded" style={{ width: `${loserPct}%` }} />
+              </div>
+            </div>
+            {metrics.patience_ratio != null && (
+              <p className="text-[11px] text-gray-400 mt-3">
+                Patience ratio: {metrics.patience_ratio.toFixed(2)}
+              </p>
+            )}
+          </div>
+
+          {/* Session win rate */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="text-sm font-medium mb-3">Win rate by session</div>
+            {Object.keys(sessionStats).length === 0 ? (
+              <p className="text-xs text-gray-400 mt-4">
+                Insufficient trades per session (need ≥ 10).
+              </p>
+            ) : (
+              <>
+                {/* Percentage row */}
+                <div className="flex gap-2 mb-1">
+                  {sessions.map(({ key, data }) => (
+                    <div key={key} className="flex-1 text-center text-[10px] font-medium"
+                      style={{ color: !data ? '#9ca3af' : data.win_rate >= 0.5 ? '#059669' : '#dc2626' }}>
+                      {data ? `${(data.win_rate * 100).toFixed(0)}%` : '—'}
+                    </div>
+                  ))}
+                </div>
+                {/* Bar chart */}
+                <div className="flex gap-2 items-end" style={{ height: BAR_HEIGHT }}>
+                  {sessions.map(({ key, data }) => {
+                    const h = data ? Math.max(Math.round(data.win_rate * BAR_HEIGHT), 5) : 5
+                    const bg = !data ? '#f3f4f6' : data.win_rate >= 0.5 ? '#d1fae5' : '#fee2e2'
+                    return (
+                      <div key={key} className="flex-1 rounded-t-sm" style={{ height: h, background: bg }} />
+                    )
+                  })}
+                </div>
+                {/* Label row */}
+                <div className="flex gap-2 mt-1">
+                  {sessions.map(({ key, data }) => (
+                    <div key={key} className="flex-1 text-center text-[10px]"
+                      style={{ color: data ? '#6b7280' : '#9ca3af' }}>
+                      {key}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ── Trade sequence ─────────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-5">
+          <div className="flex justify-between items-center mb-3">
+            <div className="text-sm font-medium">Trade sequence</div>
+            <div className="flex gap-3 text-[11px] text-gray-400 items-center">
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Winner
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Loser
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-gray-200 inline-block ring-2 ring-amber-400 ring-offset-1" /> Flagged
+              </span>
+            </div>
+          </div>
+
+          {/* Dots */}
+          <div className="flex flex-wrap gap-1 mb-3">
+            {trades.map((trade, i) => {
+              const flagged     = trade.flags.length > 0
+              const isSelected  = selectedTrade?.position_id === trade.position_id
+              return (
+                <button
+                  key={trade.position_id}
+                  onClick={() => selectTrade(trade)}
+                  title={`Trade #${i + 1}${flagged ? ' · ' + trade.flags.join(', ') : ''}`}
+                  className="rounded-full cursor-pointer transition-transform focus:outline-none"
+                  style={{
+                    width: 12, height: 12,
+                    background: trade.is_winner ? '#10b981' : '#ef4444',
+                    outline: flagged ? '2px solid #f59e0b' : 'none',
+                    outlineOffset: 1,
+                    flexShrink: 0,
+                    transform: isSelected ? 'scale(1.6)' : undefined,
+                    margin: isSelected ? '0 2px' : undefined,
+                  }}
+                />
+              )
+            })}
+          </div>
+
+          {/* Detail panel */}
+          <div className="border-t border-gray-100 pt-3 min-h-[40px]">
+            {selectedTrade ? (
+              <div className="text-sm">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-medium">
+                    Trade #{trades.findIndex(t => t.position_id === selectedTrade.position_id) + 1}
+                  </span>
+                  <span className="text-gray-500 capitalize">
+                    {selectedTrade.symbol} · {selectedTrade.trade_type}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-3 items-center text-xs text-gray-500 mb-2">
+                  <span>{formatDate(selectedTrade.open_time)}</span>
+                  <span>· {formatDuration(selectedTrade.hold_duration_minutes)}</span>
+                  <span className={`font-medium ${selectedTrade.is_winner ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {selectedTrade.net_pnl >= 0 ? '+' : ''}{selectedTrade.net_pnl.toFixed(2)}
+                  </span>
+                  <div className="flex gap-1 flex-wrap">
+                    {selectedTrade.flags.map(f => <FlagBadge key={f} flag={f} />)}
+                  </div>
+                </div>
+                {selectedTrade.flags.length > 0 && autopsyFor(selectedTrade) && (
+                  <div className="flex gap-2 items-start border-t border-gray-100 pt-2">
+                    <span className="text-gray-400 text-xs mt-0.5 shrink-0">✦</span>
+                    <p className="text-xs text-gray-500 leading-relaxed">
+                      {autopsyFor(selectedTrade)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">
+                Click any dot to inspect that trade
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* ── Trade table ────────────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="flex justify-between items-center px-4 py-3 border-b border-gray-100">
+            <div className="text-sm font-medium">All trades</div>
+            <div className="text-xs text-gray-400">
+              {trades.length} total · click flagged row to expand
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-gray-50">
+                  {['Opened', 'Symbol', 'Direction', 'Duration', 'P&L', 'Flags'].map((h, i) => (
+                    <th key={h} className={`px-4 py-2 font-medium text-gray-500 ${i >= 3 ? (i === 5 ? 'text-left' : 'text-right') : 'text-left'}`}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {trades.map((trade, i) => {
+                  const hasFl    = trade.flags.length > 0
+                  const expanded = expandedRows.has(trade.position_id)
+                  const autopsy  = autopsyFor(trade)
+                  return (
+                    <Fragment key={trade.position_id}>
+                      <tr
+                        onClick={() => hasFl && toggleRow(trade.position_id)}
+                        className={`border-t border-gray-100 transition-colors ${
+                          hasFl ? 'cursor-pointer hover:bg-gray-50' : ''
+                        }`}
+                      >
+                        <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
+                          {formatDate(trade.open_time)}
+                        </td>
+                        <td className="px-4 py-2 font-medium">{trade.symbol}</td>
+                        <td className="px-4 py-2 text-gray-500 capitalize">{trade.trade_type}</td>
+                        <td className="px-4 py-2 text-right text-gray-500">
+                          {formatDuration(trade.hold_duration_minutes)}
+                        </td>
+                        <td className={`px-4 py-2 text-right font-medium ${
+                          trade.is_winner ? 'text-emerald-600' : 'text-red-600'
+                        }`}>
+                          {trade.net_pnl >= 0 ? '+' : ''}{trade.net_pnl.toFixed(2)}
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="flex gap-1 flex-wrap">
+                            {hasFl
+                              ? trade.flags.map(f => <FlagBadge key={f} flag={f} />)
+                              : <span className="text-gray-300">—</span>
+                            }
+                          </div>
+                        </td>
+                      </tr>
+                      {hasFl && expanded && autopsy && (
+                        <tr className="bg-gray-50">
+                          <td colSpan={6} className="px-10 py-3 text-xs text-gray-500 leading-relaxed">
+                            <span className="flex items-start gap-2">
+                              <span className="text-gray-400 shrink-0 mt-0.5">✦</span>
+                              <span>{autopsy}</span>
+                            </span>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  )
+}

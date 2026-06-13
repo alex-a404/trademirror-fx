@@ -1,115 +1,127 @@
-function dotColor(isWinner) {
-  if (isWinner === true) return 'bg-emerald-500'
-  if (isWinner === false) return 'bg-rose-500'
-  return 'bg-slate-400'
-}
-
-function formatFlagName(flag) {
-  return String(flag).replace(/-/g, '_').toUpperCase()
-}
+import { useState } from 'react'
+import { AUTOPSY_FALLBACK, FlagBadge } from './InsightCard'
 
 function formatDuration(minutes) {
-  if (minutes == null) return '—'
-  if (minutes >= 60) {
-    const hours = Math.floor(minutes / 60)
-    const mins = Math.round(minutes % 60)
-    return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
+  if (!minutes) return '—'
+  if (minutes < 60) return `${Math.round(minutes)} min`
+  const h = Math.floor(minutes / 60)
+  const m = Math.round(minutes % 60)
+  return m > 0 ? `${h}h ${m}m` : `${h}h`
+}
+
+function formatDate(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleString('en-GB', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
+export default function TradeSequenceStrip({ trades = [], autopsyCards = {} }) {
+  const [selectedTrade, setSelectedTrade] = useState(null)
+
+  function selectTrade(trade) {
+    setSelectedTrade((prev) =>
+      prev?.position_id === trade.position_id ? null : trade,
+    )
   }
-  return `${Math.round(minutes)}m`
-}
 
-function formatPrice(price) {
-  if (price == null) return '—'
-  return Number(price).toFixed(5)
-}
-
-function formatPnl(pnl) {
-  if (pnl == null) return '—'
-  const value = Number(pnl)
-  const prefix = value > 0 ? '+' : ''
-  return `${prefix}${value.toFixed(2)}`
-}
-
-function pnlColorClass(pnl) {
-  if (pnl == null) return 'text-slate-700'
-  const value = Number(pnl)
-  if (value > 0) return 'text-emerald-600'
-  if (value < 0) return 'text-rose-600'
-  return 'text-slate-700'
-}
-
-function TradeTooltip({ trade }) {
-  const flags = trade.flags ?? []
-  const hasFlags = flags.length > 0
-
-  const rows = [
-    { label: 'Symbol', value: trade.symbol ?? '—' },
-    { label: 'Type', value: trade.trade_type ? trade.trade_type.toUpperCase() : '—' },
-    { label: 'Volume', value: trade.volume != null ? trade.volume : '—' },
-    { label: 'Open Price', value: formatPrice(trade.open_price) },
-    { label: 'Close Price', value: formatPrice(trade.close_price) },
-    { label: 'Duration', value: formatDuration(trade.hold_duration_minutes) },
-    {
-      label: 'Net PnL',
-      value: formatPnl(trade.net_pnl),
-      valueClass: pnlColorClass(trade.net_pnl),
-    },
-  ]
+  function autopsyFor(trade) {
+    return (
+      autopsyCards?.[trade.position_id]
+      || (trade.flags?.[0] ? AUTOPSY_FALLBACK[trade.flags[0]] : null)
+    )
+  }
 
   return (
-    <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-60 -translate-x-1/2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-      <div className="rounded-lg bg-white text-left shadow-xl ring-1 ring-slate-200">
-        {hasFlags && (
-          <div className="rounded-t-lg border-b border-rose-200 bg-rose-100 px-3 py-2">
-            <p className="text-xs font-bold uppercase tracking-wide text-rose-700">
-              {flags.map(formatFlagName).join(' · ')}
-            </p>
-          </div>
-        )}
-
-        <dl
-          className={`grid grid-cols-2 gap-x-3 gap-y-1.5 px-3 py-2.5 text-xs ${
-            hasFlags ? '' : 'rounded-lg'
-          }`}
-        >
-          {rows.map(({ label, value, valueClass = 'text-slate-800' }) => (
-            <div key={label} className="contents">
-              <dt className="text-slate-500">{label}</dt>
-              <dd className={`font-medium ${valueClass}`}>{value}</dd>
-            </div>
-          ))}
-        </dl>
+    <div className="mb-5 rounded-xl border border-gray-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-sm font-medium">Trade sequence</div>
+        <div className="flex items-center gap-3 text-[11px] text-gray-400">
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> Winner
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-red-500" /> Loser
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-gray-200 ring-2 ring-amber-400 ring-offset-1" />{' '}
+            Flagged
+          </span>
+        </div>
       </div>
 
-      <div
-        className="absolute left-1/2 top-full -translate-x-1/2 border-[6px] border-transparent border-t-white drop-shadow-sm"
-        aria-hidden="true"
-      />
-    </div>
-  )
-}
+      <div className="mb-3 flex flex-wrap gap-1">
+        {trades.map((trade, i) => {
+          const flagged = (trade.flags ?? []).length > 0
+          const isSelected = selectedTrade?.position_id === trade.position_id
 
-export default function TradeSequenceStrip({ trades = [] }) {
-  return (
-    <div className="flex flex-wrap justify-center gap-3 px-16 py-4 sm:px-24">
-      {trades.map((trade, index) => {
-        const hasFlags = (trade.flags ?? []).length > 0
-
-        return (
-          <div
-            key={trade.position_id ?? index}
-            className="group relative flex items-center justify-center"
-          >
-            <div
-              className={`h-4 w-4 cursor-default rounded-full ${dotColor(trade.is_winner)}`}
+          return (
+            <button
+              key={trade.position_id}
+              type="button"
+              onClick={() => selectTrade(trade)}
+              title={`Trade #${i + 1}${flagged ? ` · ${trade.flags.join(', ')}` : ''}`}
+              className="cursor-pointer rounded-full transition-transform focus:outline-none"
+              style={{
+                width: 12,
+                height: 12,
+                background: trade.is_winner ? '#10b981' : '#ef4444',
+                outline: flagged ? '2px solid #f59e0b' : 'none',
+                outlineOffset: 1,
+                flexShrink: 0,
+                transform: isSelected ? 'scale(1.6)' : undefined,
+                margin: isSelected ? '0 2px' : undefined,
+              }}
             />
-            {hasFlags && (
-              <div className="absolute -bottom-2 w-4 border-b-2 border-dotted border-rose-500" />
+          )
+        })}
+      </div>
+
+      <div className="min-h-[40px] border-t border-gray-100 pt-3">
+        {selectedTrade ? (
+          <div className="text-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="font-medium">
+                Trade #
+                {trades.findIndex((t) => t.position_id === selectedTrade.position_id) + 1}
+              </span>
+              <span className="capitalize text-gray-500">
+                {selectedTrade.symbol} · {selectedTrade.trade_type}
+              </span>
+            </div>
+            <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+              <span>{formatDate(selectedTrade.open_time)}</span>
+              <span>· {formatDuration(selectedTrade.hold_duration_minutes)}</span>
+              <span
+                className={`font-medium ${selectedTrade.is_winner ? 'text-emerald-600' : 'text-red-600'}`}
+              >
+                {selectedTrade.net_pnl >= 0 ? '+' : ''}
+                {selectedTrade.net_pnl.toFixed(2)}
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {(selectedTrade.flags ?? []).map((f) => (
+                  <FlagBadge key={f} flag={f} />
+                ))}
+              </div>
+            </div>
+            {(selectedTrade.flags ?? []).length > 0 && autopsyFor(selectedTrade) && (
+              <div className="flex items-start gap-2 border-t border-gray-100 pt-2">
+                <span className="mt-0.5 shrink-0 text-xs text-gray-400">✦</span>
+                <p className="text-xs leading-relaxed text-gray-500">
+                  {autopsyFor(selectedTrade)}
+                </p>
+              </div>
             )}
-            <TradeTooltip trade={trade} />
           </div>
-        )
-      })}
+        ) : (
+          <p className="text-xs text-gray-400">Click any dot to inspect that trade</p>
+        )}
+      </div>
     </div>
   )
 }
