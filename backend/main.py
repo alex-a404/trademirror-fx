@@ -13,11 +13,19 @@ from computation import compute_metrics
 from models import ClientAnalysis
 from parser import parse_mt5_report
 from routing import (
+    DIMENSION_CONTENT_MAP,
     build_behavioral_groups,
     compute_population_statistics,
     get_client_signals,
 )
 from session_store import create_session, get_session, session_exists
+from bedrock import (
+    COURSE_META,
+    generate_autopsy_card,
+    generate_campaign,
+    generate_narrative,
+    load_cache,
+)
 
 app = FastAPI(title="TradeMirror API", version="0.1.0")
 
@@ -25,7 +33,6 @@ app = FastAPI(title="TradeMirror API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -64,6 +71,7 @@ async def startup():
         print("[startup] No trades parsed from synthetic files")
         return
 
+    load_cache()
     session_data = _build_broker_session(all_trades)
     create_session("demo", session_data)
     print(f"[startup] Demo session loaded: {list(all_trades.keys())}")
@@ -97,12 +105,20 @@ async def analyze(file: UploadFile = File(...)):
 
     metrics = compute_metrics(trades)
 
+    narrative     = generate_narrative(client_id, metrics, trades)
+    autopsy_cards = {}
+    for t in trades:
+        if t.flags:
+            card = generate_autopsy_card(t)
+            if card:
+                autopsy_cards[t.position_id] = card
+
     analysis = ClientAnalysis(
         client_id=client_id,
         trades=trades,
         metrics=metrics,
-        narrative="",         # TODO: Bedrock
-        autopsy_cards={},     # TODO: Bedrock
+        narrative=narrative,
+        autopsy_cards=autopsy_cards,
     )
 
     return analysis.to_dict()
@@ -270,12 +286,21 @@ def _build_broker_session(all_trades: dict) -> dict:
     for client_id, trades in all_trades.items():
         metrics = compute_metrics(trades)
         client_metrics[client_id] = metrics
+
+        narrative     = generate_narrative(client_id, metrics, trades)
+        autopsy_cards = {}
+        for t in trades:
+            if t.flags:
+                card = generate_autopsy_card(t)
+                if card:
+                    autopsy_cards[t.position_id] = card
+
         client_analyses[client_id] = ClientAnalysis(
             client_id=client_id,
             trades=trades,
             metrics=metrics,
-            narrative="",       # TODO: Bedrock
-            autopsy_cards={},   # TODO: Bedrock
+            narrative=narrative,
+            autopsy_cards=autopsy_cards,
         )
 
     # Population statistics — requires >= 3 sufficient-history clients
@@ -296,6 +321,8 @@ def _build_broker_session(all_trades: dict) -> dict:
     groups, no_signal, excluded = build_behavioral_groups(client_metrics, pop_stats)
     client_signals = get_client_signals(client_metrics, pop_stats)
 
+    _enrich_groups_with_campaigns(groups)
+
     return {
         "analyses": client_analyses,
         "pop_stats": pop_stats,
@@ -304,6 +331,26 @@ def _build_broker_session(all_trades: dict) -> dict:
         "no_signal_clients": no_signal,
         "excluded_clients": excluded,
     }
+
+
+def _enrich_groups_with_campaigns(groups: list) -> None:
+    """
+    Call Bedrock (cache-backed) to generate campaign content for each group.
+    Sets the campaign_* fields on each BehavioralGroup in-place.
+    Safe to call when Bedrock is unavailable — fields remain empty strings.
+    """
+    for group in groups:
+        courses  = [
+            COURSE_META[cid]
+            for cid in DIMENSION_CONTENT_MAP.get(group.dimension, [])
+            if cid in COURSE_META
+        ]
+        campaign = generate_campaign(group, courses)
+        if campaign:
+            group.campaign_email_subject  = campaign.get("email_subject",  "")
+            group.campaign_email_body     = campaign.get("email_body",     "")
+            group.campaign_notification   = campaign.get("notification",   "")
+            group.campaign_talking_points = campaign.get("talking_points", "")
 
 
 def _get_session_or_404(session_id: str) -> dict:
