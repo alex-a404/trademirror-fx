@@ -91,7 +91,7 @@ function TradeTooltip({ trade }) {
 
 export default function TradeSequenceStrip({ trades = [] }) {
   return (
-    <div className="flex flex-wrap gap-3 py-4">
+    <div className="flex flex-wrap justify-center gap-3 px-16 py-4 sm:px-24">
       {trades.map((trade, index) => {
         const hasFlags = (trade.flags ?? []).length > 0
 
