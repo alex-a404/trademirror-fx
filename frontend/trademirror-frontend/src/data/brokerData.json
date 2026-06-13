@@ -1,0 +1,119 @@
+{
+  "groups": [
+    {
+      "dimension": "sizing_cv",
+      "display_name": "Position Sizing",
+      "client_count": 1,
+      "client_ids": [
+        "client_A"
+      ],
+      "behavioral_description": "Position sizes in this group vary significantly from trade to trade, more so than the broader population.",
+      "recommended_course_ids": [
+        "course_position_sizing_1",
+        "course_risk_management_1"
+      ],
+      "campaign": {
+        "email_subject": "",
+        "email_body": "",
+        "notification": "",
+        "talking_points": ""
+      }
+    },
+    {
+      "dimension": "patience_ratio",
+      "display_name": "Exit Management",
+      "client_count": 1,
+      "client_ids": [
+        "client_B"
+      ],
+      "behavioral_description": "Clients in this group tend to close profitable trades more quickly than losing trades relative to the population average.",
+      "recommended_course_ids": [
+        "course_exit_management_1",
+        "course_letting_winners_run_1"
+      ],
+      "campaign": {
+        "email_subject": "",
+        "email_body": "",
+        "notification": "",
+        "talking_points": ""
+      }
+    },
+    {
+      "dimension": "session_variance",
+      "display_name": "Session Awareness",
+      "client_count": 1,
+      "client_ids": [
+        "client_C"
+      ],
+      "behavioral_description": "Performance in this group varies considerably between trading sessions, more than is typical across your clients.",
+      "recommended_course_ids": [
+        "course_session_awareness_1",
+        "course_market_hours_1"
+      ],
+      "campaign": {
+        "email_subject": "",
+        "email_body": "",
+        "notification": "",
+        "talking_points": ""
+      }
+    }
+  ],
+  "client_signals": {
+    "client_A": {
+      "primary_signal": "sizing_cv",
+      "display_name": "Position Sizing",
+      "concern_strength": 1.5,
+      "concern_scores": {
+        "emotional_chain_rate": 1.475,
+        "sizing_cv": 1.5,
+        "patience_ratio": -0.4,
+        "session_variance": -0.479,
+        "trade_frequency": 1.461
+      },
+      "sufficient_history": true
+    },
+    "client_B": {
+      "primary_signal": "patience_ratio",
+      "display_name": "Exit Management",
+      "concern_strength": 1.433,
+      "concern_scores": {
+        "emotional_chain_rate": -0.62,
+        "sizing_cv": -0.5,
+        "patience_ratio": 1.433,
+        "session_variance": -1.089,
+        "trade_frequency": -0.327
+      },
+      "sufficient_history": true
+    },
+    "client_C": {
+      "primary_signal": "session_variance",
+      "display_name": "Session Awareness",
+      "concern_strength": 1.206,
+      "concern_scores": {
+        "emotional_chain_rate": -0.234,
+        "sizing_cv": -0.5,
+        "patience_ratio": -0.872,
+        "session_variance": 1.206,
+        "trade_frequency": -0.807
+      },
+      "sufficient_history": true
+    },
+    "client_D": {
+      "primary_signal": null,
+      "display_name": "No prominent signal",
+      "concern_strength": 0,
+      "concern_scores": {
+        "emotional_chain_rate": -0.62,
+        "sizing_cv": -0.5,
+        "patience_ratio": -0.162,
+        "session_variance": 0.362,
+        "trade_frequency": -0.327
+      },
+      "sufficient_history": true
+    }
+  },
+  "no_signal_clients": [
+    "client_D"
+  ],
+  "excluded_clients": []
+}

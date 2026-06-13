@@ -1,7 +1,20 @@
 import ClientDashboard from './components/ClientDashboard'
+import BrokerDashboard from './pages/BrokerDashboard'
 
-function App() {
-  return <ClientDashboard brokerName="Vertex FX" />
+export default function App() {
+  const path = window.location.pathname
+
+  if (path === '/broker-dashboard') {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <BrokerDashboard />
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <ClientDashboard />
+    </div>
+  )
 }
-
-export default App
