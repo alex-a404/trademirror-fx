@@ -48,7 +48,7 @@ export default function GroupCard({
           )}
 
           <div className="mb-2 text-[10px] font-medium uppercase tracking-wide text-gray-400">
-            Campaign
+            Campaign outreach
           </div>
           <CampaignSection
             group={group}

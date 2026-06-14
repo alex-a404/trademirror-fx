@@ -193,6 +193,7 @@ class BehavioralGroup:
             "display_name": self.display_name,
             "client_count": self.client_count,
             "client_ids": self.client_ids,
+            "client_profiles": build_client_profiles(self.client_ids),
             "behavioral_description": self.behavioral_description,
             "recommended_course_ids": self.recommended_course_ids,
             "campaign": {
@@ -212,3 +213,21 @@ DIMENSION_DISPLAY_NAMES = {
     "session_variance": "Session Awareness",
     "trade_frequency": "Trade Frequency",
 }
+
+MOCK_CLIENT_EMAILS: Dict[str, str] = {
+    "client_A": "alex.martinez@proton.me",
+    "client_B": "jordan.chen@gmail.com",
+    "client_C": "samira.okonkwo@outlook.com",
+    "client_D": "morgan.patel@yahoo.com",
+}
+
+
+def mock_client_email(client_id: str) -> str:
+    if client_id in MOCK_CLIENT_EMAILS:
+        return MOCK_CLIENT_EMAILS[client_id]
+    local = client_id.lower().replace("client_", "trader_")
+    return f"{local}@gmail.com"
+
+
+def build_client_profiles(client_ids: List[str]) -> Dict[str, dict]:
+    return {client_id: {"email": mock_client_email(client_id)} for client_id in client_ids}

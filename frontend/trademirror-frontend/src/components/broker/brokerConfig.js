@@ -1,4 +1,5 @@
 export const API_BASE = 'http://localhost:8000'
+export const ACADEMY_BASE = 'https://academy.vertexfx.demo'
 
 export const COURSE_CATALOG = {
   course_exit_management_1: {
@@ -108,4 +109,70 @@ export function dimCfg(dimension) {
   return (
     DIMENSION_CONFIG[dimension] || { badge: 'bg-gray-100 text-gray-500', dot: 'bg-gray-300' }
   )
+}
+
+export function getCourseUrl(courseId) {
+  return `${ACADEMY_BASE}/courses/${courseId}`
+}
+
+export function getCourse(courseId) {
+  const entry = COURSE_CATALOG[courseId]
+  if (entry) {
+    return { ...entry, url: getCourseUrl(courseId) }
+  }
+
+  return {
+    title: courseId.replace(/_/g, ' '),
+    description: 'Available in the academy.',
+    duration: '',
+    url: getCourseUrl(courseId),
+  }
+}
+
+export function formatCourseLinksBlock(courseIds) {
+  if (!courseIds?.length) return ''
+
+  const lines = courseIds.map((id) => {
+    const course = getCourse(id)
+    return `• ${course.title}: ${course.url}`
+  })
+
+  return `\n\nRecommended courses:\n${lines.join('\n')}`
+}
+
+export function buildCampaignBodyWithCourses(body, courseIds) {
+  if (!body) return formatCourseLinksBlock(courseIds).trim()
+  return `${body}${formatCourseLinksBlock(courseIds)}`
+}
+
+export function getCampaignContent(group) {
+  const fb = CAMPAIGN_FALLBACK[group.dimension] || {}
+  const cam = group.campaign || {}
+
+  return {
+    subject: cam.email_subject || fb.email_subject || '',
+    body: cam.email_body || fb.email_body || '',
+    notification: cam.notification || fb.notification || '',
+    talking_points: cam.talking_points || fb.talking_points || '',
+  }
+}
+
+export function groupClientEmails(group) {
+  return (group.client_ids ?? [])
+    .map((id) => group.client_profiles?.[id]?.email)
+    .filter(Boolean)
+}
+
+export function buildCampaignMailto(recipients, subject, body) {
+  const emails = (Array.isArray(recipients) ? recipients : [recipients]).filter(Boolean)
+  if (emails.length === 0 || !subject) return null
+
+  const query = [
+    `subject=${encodeURIComponent(subject)}`,
+    body ? `body=${encodeURIComponent(body)}` : null,
+  ]
+    .filter(Boolean)
+    .join('&')
+
+  return `mailto:${emails.join(',')}?${query}`
 }

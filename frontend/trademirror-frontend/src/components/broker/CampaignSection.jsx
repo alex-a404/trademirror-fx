@@ -1,18 +1,41 @@
-import { API_BASE, CAMPAIGN_FALLBACK } from './brokerConfig'
+import {
+  API_BASE,
+  buildCampaignBodyWithCourses,
+  buildCampaignMailto,
+  getCampaignContent,
+  groupClientEmails,
+} from './brokerConfig'
 import { CopyBtn } from './BrokerPrimitives'
 
-export default function CampaignSection({ group, sessionId, copiedKey, copy }) {
-  const fb = CAMPAIGN_FALLBACK[group.dimension] || {}
-  const cam = group.campaign || {}
+function CampaignMailButton({ href, label, variant = 'outline' }) {
+  if (!href) return null
 
-  const subject = cam.email_subject || fb.email_subject || ''
-  const body = cam.email_body || fb.email_body || ''
-  const notification = cam.notification || fb.notification || ''
-  const talkingPts = cam.talking_points || fb.talking_points || ''
+  const styles =
+    variant === 'primary'
+      ? 'border-slate-300 bg-slate-800 text-white hover:border-slate-400 hover:bg-slate-900'
+      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+
+  return (
+    <a href={href} className="shrink-0">
+      <button
+        type="button"
+        className={`rounded-lg border px-3 py-1.5 text-[11px] font-medium transition-colors ${styles}`}
+      >
+        {label}
+      </button>
+    </a>
+  )
+}
+
+export default function CampaignSection({ group, sessionId, copiedKey, copy }) {
+  const { subject, body, notification, talking_points: talkingPts } = getCampaignContent(group)
+  const emailBody = buildCampaignBodyWithCourses(body, group.recommended_course_ids)
+  const groupEmails = groupClientEmails(group)
+  const sendToAllHref = buildCampaignMailto(groupEmails, subject, emailBody)
 
   const allText = [
     `EMAIL SUBJECT: ${subject}`,
-    `\nEMAIL BODY:\n${body}`,
+    `\nEMAIL BODY:\n${emailBody}`,
     `\nIN-APP NOTIFICATION: ${notification}`,
     talkingPts ? `\nTALKING POINTS:\n${talkingPts}` : '',
   ].join('\n')
@@ -21,19 +44,58 @@ export default function CampaignSection({ group, sessionId, copiedKey, copy }) {
 
   return (
     <div>
-      <div className="mb-2 rounded-lg border border-gray-100 bg-gray-50 p-3">
-        <div className="mb-2 flex items-start justify-between">
-          <span className="text-[10px] uppercase tracking-wide text-gray-400">Email</span>
-          <CopyBtn
-            text={`Subject: ${subject}\n\n${body}`}
-            id={`email-${group.dimension}`}
-            copiedKey={copiedKey}
-            onCopy={copy}
-          />
+      <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="mb-2 flex items-start justify-between gap-3">
+          <span className="text-[10px] uppercase tracking-wide text-slate-400">Campaign email</span>
+          <div className="flex shrink-0 items-center gap-2">
+            <CopyBtn
+              text={`Subject: ${subject}\n\n${emailBody}`}
+              id={`email-${group.dimension}`}
+              copiedKey={copiedKey}
+              onCopy={copy}
+            />
+            <CampaignMailButton
+              href={sendToAllHref}
+              label={`Send to All (${groupEmails.length})`}
+              variant="primary"
+            />
+          </div>
         </div>
-        <div className="mb-1.5 text-[12px] font-medium text-gray-900">{subject}</div>
-        <p className="line-clamp-3 text-[11px] leading-relaxed text-gray-500">{body}</p>
+        <div className="mb-1.5 text-[12px] font-medium text-slate-900">{subject}</div>
+        <p className="whitespace-pre-line text-[11px] leading-relaxed text-slate-600">{emailBody}</p>
       </div>
+
+      {group.client_ids?.length > 0 && (
+        <div className="mb-4">
+          <div className="mb-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+            Recipients
+          </div>
+          <div className="space-y-2">
+            {group.client_ids.map((id) => {
+              const email = group.client_profiles?.[id]?.email
+              const sendHref = email ? buildCampaignMailto(email, subject, emailBody) : null
+
+              return (
+                <div
+                  key={id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <div className="text-[12px] font-medium text-slate-900">{id}</div>
+                    {email ? (
+                      <div className="truncate text-[11px] text-slate-500">{email}</div>
+                    ) : (
+                      <div className="text-[11px] text-slate-400">No email on file</div>
+                    )}
+                  </div>
+
+                  <CampaignMailButton href={sendHref} label="Send Campaign" />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="mb-2 rounded-lg border border-gray-100 bg-gray-50 p-3">
         <div className="mb-1.5 flex items-center justify-between">

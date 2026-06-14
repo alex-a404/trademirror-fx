@@ -1,4 +1,4 @@
-import { COURSE_CATALOG, dimCfg } from './brokerConfig'
+import { dimCfg, getCourse } from './brokerConfig'
 
 export function DimensionBadge({ dimension, label, count }) {
   const cfg = dimCfg(dimension)
@@ -63,19 +63,31 @@ export function ConcernBar({ value }) {
 }
 
 export function CourseCard({ courseId }) {
-  const course = COURSE_CATALOG[courseId] || {
-    title: courseId.replace(/_/g, ' '),
-    description: 'Available in the academy.',
-    duration: '',
-  }
+  const course = getCourse(courseId)
 
   return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-      <div className="mb-1 text-[12px] font-medium leading-snug text-gray-900">{course.title}</div>
-      <div className="text-[11px] leading-relaxed text-gray-500">{course.description}</div>
+    <div className="rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:border-slate-300">
+      <a
+        href={course.url}
+        target="_blank"
+        rel="noreferrer"
+        className="mb-1 block text-[12px] font-medium leading-snug text-slate-900 hover:text-slate-700"
+      >
+        {course.title}
+      </a>
+      <div className="text-[11px] leading-relaxed text-slate-500">{course.description}</div>
       {course.duration && (
-        <div className="mt-2 text-[10px] text-gray-400">{course.duration}</div>
+        <div className="mt-2 text-[10px] text-slate-400">{course.duration}</div>
       )}
+      <a
+        href={course.url}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-2 inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 transition-colors hover:text-slate-800"
+      >
+        Open in Academy
+        <span aria-hidden="true">→</span>
+      </a>
     </div>
   )
 }

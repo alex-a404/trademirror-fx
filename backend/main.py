@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from computation import compute_metrics
-from models import ClientAnalysis
+from models import ClientAnalysis, build_client_profiles
 from parser import parse_mt5_report
 from routing import (
     DIMENSION_CONTENT_MAP,
@@ -234,6 +234,7 @@ async def broker_export(session_id: str, dimension: str):
         "dimension": dimension,
         "display_name": target.display_name,
         "client_ids": target.client_ids,
+        "client_profiles": build_client_profiles(target.client_ids),
         "campaign_text": campaign_text,
     }
 
