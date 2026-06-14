@@ -1,10 +1,10 @@
 Here is the raw Markdown code you can copy and paste directly into your `README.md` file:
 
-# 🪞 TradeMirror Frontend
+# TradeMirror Frontend
 
 This is the React/Vite frontend for the TradeMirror hackathon project. It is built using Tailwind CSS and currently runs entirely on mock JSON data, meaning it can be demoed offline without a live backend connection.
 
-## 🛠️ Prerequisites
+## Prerequisites
 
 Before you begin, ensure you have **Node.js** installed on your machine. You can verify this by opening a terminal and running:
 
@@ -17,7 +17,7 @@ node -v
 
 ---
 
-## 🚀 Quick Start Guide
+## Quick Start Guide
 
 Follow these steps to spin up the development server on your local machine:
 
@@ -50,7 +50,7 @@ npm run dev
 
 ### 4. View the App
 
-Once the server starts, open your web browser and go to:
-👉 **http://localhost:5173**
+Once the server starts, open your web browser and go to: 
+**http://localhost:5173**
 
 ---
